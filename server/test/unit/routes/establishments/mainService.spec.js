@@ -14,22 +14,22 @@ describe('mainService', () => {
       {
         id: 1,
         name: 'foo',
-        category: 'foo'
+        category: 'foo',
       },
       {
         id: 2,
         name: 'foo',
-        category: 'foo'
+        category: 'foo',
       },
       {
         id: 3,
         name: 'foo',
-        category: 'foo'
+        category: 'foo',
       },
       {
         id: 4,
         name: 'foo',
-        category: 'foo'
+        category: 'foo',
       },
     ]);
 
@@ -38,7 +38,6 @@ describe('mainService', () => {
   afterEach(() => {
     sinon.restore();
   });
-
 
   it('should change the main service (with no other changes) if regulation state does not change (true)', async () => {
     const username = 'foo';
@@ -64,7 +63,7 @@ describe('mainService', () => {
           id: 16,
         },
         cqc: true,
-      }
+      },
     });
 
     req.username = username;
@@ -103,7 +102,7 @@ describe('mainService', () => {
           id: 16,
         },
         cqc: false,
-      }
+      },
     });
 
     req.username = username;
@@ -140,7 +139,7 @@ describe('mainService', () => {
         mainService: {
           id: 16,
         },
-      }
+      },
     });
 
     req.username = 'aylingw';
@@ -161,14 +160,20 @@ describe('mainService', () => {
 
     const otherServices = [
       {
-        id: 1, name: 'foo', category: 'foo'
+        id: 1,
+        name: 'foo',
+        category: 'foo',
       },
       {
-        id: 2, name: 'foo', category: 'foo'
+        id: 2,
+        name: 'foo',
+        category: 'foo',
       },
       {
-        id: 5, name: 'foo', category: 'foo'
-      }
+        id: 5,
+        name: 'foo',
+        category: 'foo',
+      },
     ];
 
     sinon.stub(dbmodels.user, 'findByUUID').returns({
@@ -186,12 +191,12 @@ describe('mainService', () => {
       address1: '123 Fake Street',
       postcode: 'LS11AA',
       mainService: {
-        id: 16
+        id: 16,
       },
       isRegulated: true,
       share: {
         enabled: true,
-        with: ['CQC']
+        with: ['CQC'],
       },
       services: otherServices,
     });
@@ -208,7 +213,7 @@ describe('mainService', () => {
           id: 16,
         },
         cqc: false,
-      }
+      },
     });
 
     req.username = 'aylingw';
@@ -226,11 +231,17 @@ describe('mainService', () => {
     expect(establishment.shareWith.with).to.not.include('CQC');
     expect(establishment._properties.get('OtherServices').property).to.deep.equal([
       {
-        id: 1, name: 'foo', category: 'foo', other: undefined
+        id: 1,
+        name: 'foo',
+        category: 'foo',
+        other: undefined,
       },
       {
-        id: 2, name: 'foo', category: 'foo', other: undefined
-      }
+        id: 2,
+        name: 'foo',
+        category: 'foo',
+        other: undefined,
+      },
     ]);
   });
 });

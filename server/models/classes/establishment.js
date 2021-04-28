@@ -428,7 +428,12 @@ class Establishment extends EntityValidator {
           allAssociatedServiceIndices.push(document.mainService.id);
           mainServiceAdded = true;
         }
-        if (document && document.otherServices && document.otherServices.services &&  Array.isArray(document.otherServices)) {
+        if (
+          document &&
+          document.otherServices &&
+          document.otherServices.services &&
+          Array.isArray(document.otherServices)
+        ) {
           document.otherServices.services.forEach((thisService) => {
             if (thisService.id) {
               allAssociatedServiceIndices.push(thisService.id);

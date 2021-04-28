@@ -272,6 +272,322 @@ const responseErrors = {
   },
 };
 
+const postRegistration = async (req, res) => {
+  //basic validation
+  if (JSON.stringify(req.body) == '{}') {
+    return res.status(400).json({
+      success: 0,
+      message: 'Parameters missing',
+    });
+  }
+
+  // TODO: JSON Schema validation
+
+  // Password validation check
+  if (req.body[0] && req.body[0].user && req.body[0].user.password) {
+    if (!passwordCheck(req.body[0].user.password)) {
+      return res.status(400).json({
+        success: 0,
+        message:
+          'Password must be at least 8 characters long and have uppercase letters, lowercase letters and numbers',
+      });
+    }
+  }
+
+  // Username validation check
+  if (req.body[0] && req.body[0].user && req.body[0].user.username) {
+    if (!usernameCheck(req.body[0].user.username)) {
+      console.error(`Registration:  ${responseErrors.invalidUsername.message} - ${req.body[0].user.username}`);
+      return res.status(400).json(responseErrors.invalidUsername);
+    }
+  }
+
+  let defaultError = responseErrors.default;
+  try {
+    // location ID is only relevant for CQC sites - namely isRegulated is true
+    if (!req.body[0].isRegulated) {
+      delete req.body[0].locationId;
+    }
+
+    // extract establishment, user and login data from given input
+    const Estblistmentdata = {
+      Name: req.body[0].locationName,
+      Address: concatenateAddress(
+        req.body[0].addressLine1,
+        req.body[0].addressLine2,
+        req.body[0].townCity,
+        req.body[0].county,
+      ),
+      Address1: req.body[0].addressLine1,
+      Address2: req.body[0].addressLine2,
+      Town: req.body[0].townCity,
+      County: req.body[0].county,
+      LocationID: req.body[0].locationId,
+      PostCode: req.body[0].postalCode,
+      MainService: req.body[0].mainService,
+      MainServiceId: null,
+      MainServiceOther: req.body[0].mainServiceOther,
+      IsRegulated: req.body[0].isRegulated,
+      Status: 'PENDING',
+    };
+    const Userdata = {
+      FullName: req.body[0].user.fullname,
+      JobTitle: req.body[0].user.jobTitle,
+      Email: req.body[0].user.email,
+      Phone: req.body[0].user.phone,
+      SecurityQuestion: req.body[0].user.securityQuestion,
+      SecurityQuestionAnswer: req.body[0].user.securityQuestionAnswer,
+      DateCreated: new Date(),
+      EstablishmentID: 0,
+      AdminUser: true,
+    };
+    // Check if the user is allowed to be active based on wether they are CQC registered   - this does work but temporarily we don't want to auto approve anyone
+    // let CQCpostcode = false;
+    // let CQClocationID = false;
+    // Check if the Postcode is in the CQC database
+    // try {
+    //   console.log('AR - Checking if Postcode is CQC registered.');
+    //   let cleanPostcode= pCodeCheck.sanitisePostcode(Estblistmentdata.PostCode);
+
+    //   if (cleanPostcode != null) {
+    //     //Find matching postcode data
+    //     let results = await models.location.findAll({
+    //       where: {
+    //         postalcode: cleanPostcode
+    //       }
+    //     });
+    //     if (results.length) {
+    //       CQCpostcode = true;
+    //       console.log('AR - Found matching CQC Postcode');
+    //     }
+    //   }
+    // } catch(error) {
+    //   console.error(error)
+    // }
+    // // Check if the location ID is in the CQC database
+    // try {
+    //   console.log('AR - Checking if Location ID is CQC registered.');
+
+    //   if (Estblistmentdata.LocationID != null) {
+    //     //Find matching postcode data
+    //     let results = await models.location.findAll({
+    //       where: {
+    //         locationid: Estblistmentdata.LocationID
+    //       }
+    //     });
+    //     if (results.length) {
+    //       CQClocationID = true;
+    //       console.log('AR - Found matching CQC Location ID');
+    //     }
+    //   }
+    // } catch(error) {
+    //   console.error(error)
+    // }
+
+    var Logindata = {
+      RegistrationId: 0,
+      UserName: req.body[0].user.username,
+      Password: req.body[0].user.password,
+      // Active: CQCpostcode && CQClocationID,
+      Active: false,
+      InvalidAttempt: 0,
+      Status: 'PENDING',
+    };
+
+    // there are multiple steps to regiastering a new user/establishment. They must be done in entirety (all or nothing).
+    // 1. looking the main service; to get ID
+    // 2. Create Establishment record, to get Establishment ID
+    // 3. Create User record (using Establishment ID) to get Registration ID
+    // 4. Create Login record (using Registration ID)
+    try {
+      // if any part fails, it all fails. So wrap into a single transaction; commit on success and rollback on failure.
+      await models.sequelize.transaction(async (t) => {
+        // first - validate given main service id, for which the main service id is dependent on whether the site is CQC regulated or not
+        let serviceResults = null;
+        if (Estblistmentdata.IsRegulated) {
+          // if a regulated (CQC) site, then can use any of the services as long as they are a main service
+          serviceResults = await models.services.findOne({
+            where: {
+              name: Estblistmentdata.MainService,
+              isMain: true,
+            },
+          });
+        } else {
+          // a non-CQC site can only use non-CQC services
+          serviceResults = await models.services.findOne({
+            where: {
+              name: Estblistmentdata.MainService,
+              iscqcregistered: {
+                [models.Sequelize.Op.or]: [false, null],
+              },
+              isMain: true,
+            },
+          });
+        }
+
+        if (serviceResults && serviceResults.id && Estblistmentdata.MainService === serviceResults.name) {
+          Estblistmentdata.MainServiceId = serviceResults.id;
+        } else {
+          throw new RegistrationException(
+            `Lookup on services for '${Estblistmentdata.MainService}' being cqc registered (${Estblistmentdata.IsRegulated}) resulted with zero records`,
+            responseErrors.unexpectedMainService.errCode,
+            responseErrors.unexpectedMainService.errMessage,
+          );
+        }
+
+        if (
+          serviceResults.other &&
+          Estblistmentdata.MainServiceOther &&
+          Estblistmentdata.MainServiceOther.length > OTHER_MAX_LENGTH
+        ) {
+          throw new RegistrationException(
+            `Other field value of '${Estblistmentdata.MainServiceOther}' greater than length ${OTHER_MAX_LENGTH}`,
+            responseErrors.unexpectedMainService.errCode,
+            responseErrors.unexpectedMainService.errMessage,
+          );
+        }
+
+        // now create establishment - using the extended property encapsulation
+        defaultError = responseErrors.establishment;
+        const newEstablishment = new EstablishmentModel(Logindata.UserName);
+        newEstablishment.initialise(
+          Estblistmentdata.Address1,
+          Estblistmentdata.Address2,
+          null,
+          Estblistmentdata.Town,
+          Estblistmentdata.County,
+          Estblistmentdata.LocationID,
+          null, // PROV ID is not captured yet on registration
+          Estblistmentdata.PostCode,
+          Estblistmentdata.IsRegulated,
+        );
+        await newEstablishment.load({
+          name: Estblistmentdata.Name,
+          mainService: {
+            id: Estblistmentdata.MainServiceId,
+            other: Estblistmentdata.MainServiceOther,
+          },
+          ustatus: Estblistmentdata.Status,
+        }); // no Establishment properties on registration
+        if (newEstablishment.hasMandatoryProperties && newEstablishment.isValid) {
+          await newEstablishment.save(Logindata.UserName, false, t);
+          Estblistmentdata.id = newEstablishment.id;
+          Estblistmentdata.eUID = newEstablishment.uid;
+          Estblistmentdata.NmdsId = newEstablishment.nmdsId;
+        } else {
+          // Establishment properties not valid
+          throw new RegistrationException(
+            'Inavlid establishment properties',
+            responseErrors.invalidEstablishment.errCode,
+            responseErrors.invalidEstablishment.errMessage,
+          );
+        }
+
+        // now create user
+        defaultError = responseErrors.user;
+        const newUser = new UserModel(Estblistmentdata.id);
+        await newUser.load({
+          role: 'Edit',
+          fullname: Userdata.FullName,
+          jobTitle: Userdata.JobTitle,
+          email: Userdata.Email.toLowerCase(),
+          phone: Userdata.Phone,
+          securityQuestion: Userdata.SecurityQuestion,
+          securityQuestionAnswer: Userdata.SecurityQuestionAnswer,
+          username: Logindata.UserName.toLowerCase(),
+          password: Logindata.Password,
+          isPrimary: true,
+          isActive: Logindata.Active,
+          status: Logindata.Status,
+          registrationSurveyCompleted: false,
+        });
+        if (newUser.isValid) {
+          await newUser.save(Logindata.UserName, 0, t);
+          Userdata.registrationID = newUser.id;
+        } else {
+          // Establishment properties not valid
+          throw new RegistrationException(
+            'Inavlid user/login properties',
+            responseErrors.invalidUser.errCode,
+            responseErrors.invalidUser.errMessage,
+          );
+        }
+
+        // post via Slack, but remove sensitive data
+        const slackMsg = req.body[0];
+        delete slackMsg.user.password;
+        delete slackMsg.user.securityQuestion;
+        delete slackMsg.user.securityQuestionAnswer;
+        slackMsg.nmdsId = Estblistmentdata.NmdsId;
+        slackMsg.establishmentUid = Estblistmentdata.eUID;
+        slack.info('Registration', JSON.stringify(slackMsg, null, 2));
+        // post through feedback topic - async method but don't wait for a responseThe
+        sns.postToRegistrations(slackMsg);
+        // gets here on success
+        req.sqreen.signup_track({
+          userId: newUser.uid,
+          establishmentId: Estblistmentdata.eUID,
+        });
+
+        res.status(200);
+        res.json({
+          status: 1,
+          message: 'Establishment and primary user successfully created',
+          establishmentId: Estblistmentdata.id,
+          establishmentUid: Estblistmentdata.eUID,
+          primaryUser: Logindata.UserName,
+          nmdsId: Estblistmentdata.NmdsId ? Estblistmentdata.NmdsId : 'undefined',
+          active: Logindata.Active,
+          userstatus: Logindata.Status,
+        });
+      });
+    } catch (err) {
+      //console.error('Caught exception in registration: ', err);
+
+      // if we've already found a specific registration error, re-throw the error
+      if (err instanceof RegistrationException) throw err;
+
+      if (!defaultError) defaultError = responseErrors.default;
+
+      if (err instanceof EstablishmentSaveException) {
+        if (err.message === 'Duplicate Establishment') {
+          defaultError = responseErrors.duplicateEstablishment;
+        } else if (err.message === 'Unknown Location') {
+          defaultError = responseErrors.unknownLocation;
+        } else if (err.message === 'Unknown NMDSID') {
+          defaultError = responseErrors.unknownNMDSLetter;
+        }
+      }
+
+      if (err instanceof UserSaveException) {
+        if (err.message === 'Duplicate Username') {
+          defaultError = responseErrors.duplicateUsername;
+        }
+      }
+
+      throw new RegistrationException(err, defaultError.errCode, defaultError.errMessage);
+    }
+  } catch (err) {
+    // failed to fully register a new user/establishment - full rollback
+    console.error('Registration: rolling back all changes because: ', err.errCode, err.errMessage);
+    if (err.errCode > -99) {
+      console.error('Registration: original error: ', err.err);
+    }
+
+    if (err.errCode > -99) {
+      // we have an unexpected error
+      res.status(500);
+    } else {
+      // we have an expected error owing to given client data
+      res.status(400);
+    }
+    res.json({
+      status: err.errCode,
+      message: err.errMessage,
+    });
+  }
+};
+
 router
   .route('/')
   .get((req, res) => {
@@ -280,322 +596,7 @@ router
       message: 'Registration API',
     });
   })
-
-  .post(async (req, res) => {
-    //basic validation
-    if (JSON.stringify(req.body) == '{}') {
-      return res.status(400).json({
-        success: 0,
-        message: 'Parameters missing',
-      });
-    }
-
-    // TODO: JSON Schema validation
-
-    // Password validation check
-    if (req.body[0] && req.body[0].user && req.body[0].user.password) {
-      if (!passwordCheck(req.body[0].user.password)) {
-        return res.status(400).json({
-          success: 0,
-          message:
-            'Password must be at least 8 characters long and have uppercase letters, lowercase letters and numbers',
-        });
-      }
-    }
-
-    // Username validation check
-    if (req.body[0] && req.body[0].user && req.body[0].user.username) {
-      if (!usernameCheck(req.body[0].user.username)) {
-        console.error(`Registration:  ${responseErrors.invalidUsername.message} - ${req.body[0].user.username}`);
-        return res.status(400).json(responseErrors.invalidUsername);
-      }
-    }
-
-    let defaultError = responseErrors.default;
-    try {
-      // location ID is only relevant for CQC sites - namely isRegulated is true
-      if (!req.body[0].isRegulated) {
-        delete req.body[0].locationId;
-      }
-
-      // extract establishment, user and login data from given input
-      const Estblistmentdata = {
-        Name: req.body[0].locationName,
-        Address: concatenateAddress(
-          req.body[0].addressLine1,
-          req.body[0].addressLine2,
-          req.body[0].townCity,
-          req.body[0].county,
-        ),
-        Address1: req.body[0].addressLine1,
-        Address2: req.body[0].addressLine2,
-        Town: req.body[0].townCity,
-        County: req.body[0].county,
-        LocationID: req.body[0].locationId,
-        PostCode: req.body[0].postalCode,
-        MainService: req.body[0].mainService,
-        MainServiceId: null,
-        MainServiceOther: req.body[0].mainServiceOther,
-        IsRegulated: req.body[0].isRegulated,
-        Status: 'PENDING',
-      };
-      const Userdata = {
-        FullName: req.body[0].user.fullname,
-        JobTitle: req.body[0].user.jobTitle,
-        Email: req.body[0].user.email,
-        Phone: req.body[0].user.phone,
-        SecurityQuestion: req.body[0].user.securityQuestion,
-        SecurityQuestionAnswer: req.body[0].user.securityQuestionAnswer,
-        DateCreated: new Date(),
-        EstablishmentID: 0,
-        AdminUser: true,
-      };
-      // Check if the user is allowed to be active based on wether they are CQC registered   - this does work but temporarily we don't want to auto approve anyone
-      // let CQCpostcode = false;
-      // let CQClocationID = false;
-      // Check if the Postcode is in the CQC database
-      // try {
-      //   console.log('AR - Checking if Postcode is CQC registered.');
-      //   let cleanPostcode= pCodeCheck.sanitisePostcode(Estblistmentdata.PostCode);
-
-      //   if (cleanPostcode != null) {
-      //     //Find matching postcode data
-      //     let results = await models.location.findAll({
-      //       where: {
-      //         postalcode: cleanPostcode
-      //       }
-      //     });
-      //     if (results.length) {
-      //       CQCpostcode = true;
-      //       console.log('AR - Found matching CQC Postcode');
-      //     }
-      //   }
-      // } catch(error) {
-      //   console.error(error)
-      // }
-      // // Check if the location ID is in the CQC database
-      // try {
-      //   console.log('AR - Checking if Location ID is CQC registered.');
-
-      //   if (Estblistmentdata.LocationID != null) {
-      //     //Find matching postcode data
-      //     let results = await models.location.findAll({
-      //       where: {
-      //         locationid: Estblistmentdata.LocationID
-      //       }
-      //     });
-      //     if (results.length) {
-      //       CQClocationID = true;
-      //       console.log('AR - Found matching CQC Location ID');
-      //     }
-      //   }
-      // } catch(error) {
-      //   console.error(error)
-      // }
-
-      var Logindata = {
-        RegistrationId: 0,
-        UserName: req.body[0].user.username,
-        Password: req.body[0].user.password,
-        // Active: CQCpostcode && CQClocationID,
-        Active: false,
-        InvalidAttempt: 0,
-        Status: 'PENDING',
-      };
-
-      // there are multiple steps to regiastering a new user/establishment. They must be done in entirety (all or nothing).
-      // 1. looking the main service; to get ID
-      // 2. Create Establishment record, to get Establishment ID
-      // 3. Create User record (using Establishment ID) to get Registration ID
-      // 4. Create Login record (using Registration ID)
-      try {
-        // if any part fails, it all fails. So wrap into a single transaction; commit on success and rollback on failure.
-        await models.sequelize.transaction(async (t) => {
-          // first - validate given main service id, for which the main service id is dependent on whether the site is CQC regulated or not
-          let serviceResults = null;
-          if (Estblistmentdata.IsRegulated) {
-            // if a regulated (CQC) site, then can use any of the services as long as they are a main service
-            serviceResults = await models.services.findOne({
-              where: {
-                name: Estblistmentdata.MainService,
-                isMain: true,
-              },
-            });
-          } else {
-            // a non-CQC site can only use non-CQC services
-            serviceResults = await models.services.findOne({
-              where: {
-                name: Estblistmentdata.MainService,
-                iscqcregistered: {
-                  [models.Sequelize.Op.or]: [false, null],
-                },
-                isMain: true,
-              },
-            });
-          }
-
-          if (serviceResults && serviceResults.id && Estblistmentdata.MainService === serviceResults.name) {
-            Estblistmentdata.MainServiceId = serviceResults.id;
-          } else {
-            throw new RegistrationException(
-              `Lookup on services for '${Estblistmentdata.MainService}' being cqc registered (${Estblistmentdata.IsRegulated}) resulted with zero records`,
-              responseErrors.unexpectedMainService.errCode,
-              responseErrors.unexpectedMainService.errMessage,
-            );
-          }
-
-          if (
-            serviceResults.other &&
-            Estblistmentdata.MainServiceOther &&
-            Estblistmentdata.MainServiceOther.length > OTHER_MAX_LENGTH
-          ) {
-            throw new RegistrationException(
-              `Other field value of '${Estblistmentdata.MainServiceOther}' greater than length ${OTHER_MAX_LENGTH}`,
-              responseErrors.unexpectedMainService.errCode,
-              responseErrors.unexpectedMainService.errMessage,
-            );
-          }
-
-          // now create establishment - using the extended property encapsulation
-          defaultError = responseErrors.establishment;
-          const newEstablishment = new EstablishmentModel(Logindata.UserName);
-          newEstablishment.initialise(
-            Estblistmentdata.Address1,
-            Estblistmentdata.Address2,
-            null,
-            Estblistmentdata.Town,
-            Estblistmentdata.County,
-            Estblistmentdata.LocationID,
-            null, // PROV ID is not captured yet on registration
-            Estblistmentdata.PostCode,
-            Estblistmentdata.IsRegulated,
-          );
-          await newEstablishment.load({
-            name: Estblistmentdata.Name,
-            mainService: {
-              id: Estblistmentdata.MainServiceId,
-              other: Estblistmentdata.MainServiceOther,
-            },
-            ustatus: Estblistmentdata.Status,
-          }); // no Establishment properties on registration
-          if (newEstablishment.hasMandatoryProperties && newEstablishment.isValid) {
-            await newEstablishment.save(Logindata.UserName, false, t);
-            Estblistmentdata.id = newEstablishment.id;
-            Estblistmentdata.eUID = newEstablishment.uid;
-            Estblistmentdata.NmdsId = newEstablishment.nmdsId;
-          } else {
-            // Establishment properties not valid
-            throw new RegistrationException(
-              'Inavlid establishment properties',
-              responseErrors.invalidEstablishment.errCode,
-              responseErrors.invalidEstablishment.errMessage,
-            );
-          }
-
-          // now create user
-          defaultError = responseErrors.user;
-          const newUser = new UserModel(Estblistmentdata.id);
-          await newUser.load({
-            role: 'Edit',
-            fullname: Userdata.FullName,
-            jobTitle: Userdata.JobTitle,
-            email: Userdata.Email.toLowerCase(),
-            phone: Userdata.Phone,
-            securityQuestion: Userdata.SecurityQuestion,
-            securityQuestionAnswer: Userdata.SecurityQuestionAnswer,
-            username: Logindata.UserName.toLowerCase(),
-            password: Logindata.Password,
-            isPrimary: true,
-            isActive: Logindata.Active,
-            status: Logindata.Status,
-            registrationSurveyCompleted: false,
-          });
-          if (newUser.isValid) {
-            await newUser.save(Logindata.UserName, 0, t);
-            Userdata.registrationID = newUser.id;
-          } else {
-            // Establishment properties not valid
-            throw new RegistrationException(
-              'Inavlid user/login properties',
-              responseErrors.invalidUser.errCode,
-              responseErrors.invalidUser.errMessage,
-            );
-          }
-
-          // post via Slack, but remove sensitive data
-          const slackMsg = req.body[0];
-          delete slackMsg.user.password;
-          delete slackMsg.user.securityQuestion;
-          delete slackMsg.user.securityQuestionAnswer;
-          slackMsg.nmdsId = Estblistmentdata.NmdsId;
-          slackMsg.establishmentUid = Estblistmentdata.eUID;
-          slack.info('Registration', JSON.stringify(slackMsg, null, 2));
-          // post through feedback topic - async method but don't wait for a responseThe
-          sns.postToRegistrations(slackMsg);
-          // gets here on success
-          req.sqreen.signup_track({
-            userId: newUser.uid,
-            establishmentId: Estblistmentdata.eUID,
-          });
-
-          res.status(200);
-          res.json({
-            status: 1,
-            message: 'Establishment and primary user successfully created',
-            establishmentId: Estblistmentdata.id,
-            establishmentUid: Estblistmentdata.eUID,
-            primaryUser: Logindata.UserName,
-            nmdsId: Estblistmentdata.NmdsId ? Estblistmentdata.NmdsId : 'undefined',
-            active: Logindata.Active,
-            userstatus: Logindata.Status,
-          });
-        });
-      } catch (err) {
-        //console.error('Caught exception in registration: ', err);
-
-        // if we've already found a specific registration error, re-throw the error
-        if (err instanceof RegistrationException) throw err;
-
-        if (!defaultError) defaultError = responseErrors.default;
-
-        if (err instanceof EstablishmentSaveException) {
-          if (err.message === 'Duplicate Establishment') {
-            defaultError = responseErrors.duplicateEstablishment;
-          } else if (err.message === 'Unknown Location') {
-            defaultError = responseErrors.unknownLocation;
-          } else if (err.message === 'Unknown NMDSID') {
-            defaultError = responseErrors.unknownNMDSLetter;
-          }
-        }
-
-        if (err instanceof UserSaveException) {
-          if (err.message === 'Duplicate Username') {
-            defaultError = responseErrors.duplicateUsername;
-          }
-        }
-
-        throw new RegistrationException(err, defaultError.errCode, defaultError.errMessage);
-      }
-    } catch (err) {
-      // failed to fully register a new user/establishment - full rollback
-      console.error('Registration: rolling back all changes because: ', err.errCode, err.errMessage);
-      if (err.errCode > -99) {
-        console.error('Registration: original error: ', err.err);
-      }
-
-      if (err.errCode > -99) {
-        // we have an unexpected error
-        res.status(500);
-      } else {
-        // we have an expected error owing to given client data
-        res.status(400);
-      }
-      res.json({
-        status: err.errCode,
-        message: err.errMessage,
-      });
-    }
-  }); // ends router.route('/').post
+  .post(postRegistration);
 
 router.post('/requestPasswordReset', async (req, res) => {
   // parse input - escaped to prevent SQL injection
@@ -788,3 +789,4 @@ router.post('/validateResetPassword', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.postRegistration = postRegistration;
