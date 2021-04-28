@@ -1,38 +1,30 @@
-const models = require('../../models/');
-const {RateLimiterPostgres} = require('rate-limiter-flexible');
-const appConfig = require('../../config/config');
+const config = require('../../config/config');
+const RateLimit = require('express-rate-limit');
+const RedisStore = require('rate-limit-redis');
 
-const opts = {
-  points: appConfig.get('rateLimiting.points'),
-  duration: appConfig.get('rateLimiting.duration'),
-  storeClient: models.sequelize,
-  tableName: appConfig.get('rateLimiting.table'),
-  keyPrefix: 'UsernameLookup'
+const vcapServices = JSON.parse(config.get('vcapServices'));
+
+const store = new RedisStore({
+  redisURL: vcapServices.redis.uri,
+});
+
+const rateLimiterConfig = {
+  store,
+  delayMs: 0, // disable delaying - full speed until the max limit is reached
+  passIfNotConnected: true,
 };
 
-const ready = (err) => {
-  if (err) {
-    console.error(err);
-  } else {
-    console.log('Created/Found table needed for rate limiting');
-  }
-};
+const authLimiter = new RateLimit({
+  ...rateLimiterConfig,
+  max: 100,
+  prefix: 'auth:',
+});
 
-const rateLimiter = new RateLimiterPostgres(opts, ready);
+const dbLimiter = new RateLimit({
+  ...rateLimiterConfig,
+  max: 200,
+  prefix: 'db:',
+});
 
-exports.rateLimiting = (req, res, next) => {
-  rateLimiter.consume(req.ip, 1)
-    .then((rateLimiterRes) => {
-      const headers = {
-        "Retry-After": rateLimiterRes.msBeforeNext / 1000,
-        "X-RateLimit-Limit": opts.points,
-        "X-RateLimit-Remaining": rateLimiterRes.remainingPoints,
-        "X-RateLimit-Reset": new Date(Date.now() + rateLimiterRes.msBeforeNext)
-      };
-      res.set(headers);
-      next();
-    })
-    .catch(() => {
-      res.status(429).send('Too Many Requests');
-    });
-};
+module.exports.authLimiter = authLimiter;
+module.exports.dbLimiter = dbLimiter;

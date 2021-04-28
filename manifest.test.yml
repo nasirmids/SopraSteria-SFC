@@ -3,4 +3,7 @@ applications:
     memory: 4G
     disk_quota: 2GB
     buildpack: https://github.com/cloudfoundry/nodejs-buildpack.git#v1.7.45
+    services:
+      - sfcstaging-db
+      - sfcstaging-redis
 stack: cflinuxfs3
