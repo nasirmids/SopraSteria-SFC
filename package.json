@@ -67,7 +67,7 @@
     "express-sanitizer": "^1.0.6",
     "file-saver": "^2.0.5",
     "govuk-frontend": "^3.10.2",
-    "helmet": "^4.3.1",
+    "helmet": "^4.6.0",
     "highcharts": "^8.2.2",
     "highcharts-angular": "^2.8.2",
     "honeycomb-beeline": "^2.7.0",
