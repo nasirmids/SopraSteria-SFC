@@ -44,7 +44,7 @@
     "@istanbuljs/nyc-config-typescript": "^1.0.1",
     "@sentry/browser": "^6.0.2",
     "@sentry/node": "^6.2.5",
-    "@sentry/tracing": "^6.2.5",
+    "@sentry/tracing": "^6.8.0",
     "ajv": "^6.12.6",
     "angulartics2": "^10.0.0",
     "aws-sdk": "^2.833.0",
