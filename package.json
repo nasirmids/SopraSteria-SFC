@@ -80,7 +80,7 @@
     "moment": "^2.29.1",
     "moment-timezone": "^0.5.33",
     "morgan": "^1.10.0",
-    "ngx-dropzone": "^2.3.0",
+    "ngx-dropzone": "^3.0.0",
     "notifications-node-client": "^5.1.0",
     "openpgp": "^5.0.0-1",
     "p-ratelimit": "^1.0.1",
