@@ -82,7 +82,7 @@
     "morgan": "^1.10.0",
     "ngx-dropzone": "^2.3.0",
     "notifications-node-client": "^5.1.0",
-    "openpgp": "^5.0.0-1",
+    "openpgp": "^5.0.0-3",
     "p-ratelimit": "^1.0.1",
     "passport": "^0.4.1",
     "passport-jwt": "^4.0.0",
