@@ -58,7 +58,7 @@
     "convict": "^6.0.0",
     "convict-format-with-validator": "^6.0.0",
     "cookie-parser": "^1.4.5",
-    "core-js": "^3.9.0",
+    "core-js": "^3.15.2",
     "csvtojson": "^2.0.10",
     "details-element-polyfill": "^2.4.0",
     "exceljs": "^4.2.0",
