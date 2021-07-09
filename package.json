@@ -45,7 +45,7 @@
     "@sentry/browser": "^6.0.2",
     "@sentry/node": "^6.2.5",
     "@sentry/tracing": "^6.2.5",
-    "ajv": "^6.12.6",
+    "ajv": "^8.6.1",
     "angulartics2": "^10.0.0",
     "aws-sdk": "^2.833.0",
     "axios": "^0.21.1",
