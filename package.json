@@ -47,7 +47,7 @@
     "@sentry/tracing": "^6.2.5",
     "ajv": "^6.12.6",
     "angulartics2": "^10.0.0",
-    "aws-sdk": "^2.833.0",
+    "aws-sdk": "^2.942.0",
     "axios": "^0.21.1",
     "bcrypt-nodejs": "0.0.3",
     "canvg": "^3.0.7",
