@@ -97,7 +97,7 @@
     "sequelize-cli": "^5.5.1",
     "sequelize-replace-enum-postgres": "^1.6.0",
     "serve-favicon": "^2.5.0",
-    "sib-api-v3-sdk": "^8.2.0",
+    "sib-api-v3-sdk": "^8.2.1",
     "slugify": "^1.4.6",
     "sqreen": "^1.63.0",
     "text-encoding-utf-8": "^1.0.2",
